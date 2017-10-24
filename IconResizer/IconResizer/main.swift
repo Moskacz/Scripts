@@ -9,6 +9,35 @@
 import Foundation
 import Cocoa
 
+extension NSImage {
+    func resized(toSize size: NSSize) -> NSImage? {
+        let rect = NSRect(x: 0, y: 0, width: size.width, height: size.height)
+        guard let representation = bestRepresentation(for: rect, context: nil, hints: nil) else {
+            return nil
+        }
+        
+        return NSImage(size: size, flipped: false, drawingHandler: { (_) -> Bool in
+            return representation.draw(in: rect)
+        })
+    }
+    
+    func savePNG(toURL url: URL) throws {
+        guard let pngData = pngRepresentation else {
+            throw NSError(domain: "ImageResizer",
+                          code: 0,
+                          userInfo: [NSLocalizedDescriptionKey: "cannot create png representation"])
+        }
+        
+        try pngData.write(to: url)
+    }
+    
+    var pngRepresentation: Data? {
+        guard let tiff = tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
+        return bitmap.representation(using: .png, properties: [:])
+    }
+}
+
+
 struct IconData {
     let size: NSSize
     let iconName: String
@@ -24,7 +53,7 @@ struct IconData {
     }
 }
 
-struct IconDataFactory {
+class IconDataFactory {
     static func getData() -> [IconData] {
         let sizes = [NSSize(width: 40, height: 40),
                      NSSize(width: 58, height: 58),
@@ -33,6 +62,7 @@ struct IconDataFactory {
                      NSSize(width: 87, height: 87),
                      NSSize(width: 120, height: 120),
                      NSSize(width: 180, height: 180),
+                     NSSize(width: 1024, height: 1024),
                      ]
         return sizes.map {
             return IconData(size: $0)
@@ -51,26 +81,18 @@ if arguments.count < 2 {
         let image = NSImage(byReferencing: imagePath)
         if image.isValid {
             let imagesData = IconDataFactory.getData()
+            
             for imageData in imagesData {
-                let rect = NSRect(x: 0, y: 0, width: imageData.size.width, height: imageData.size.height)
-                let resizedImg = NSImage(size: imageData.size)
-                image.size = imageData.size
-                resizedImg.lockFocus()
-                NSGraphicsContext.current?.imageInterpolation = .high
-                image.draw(at: .zero, from: rect, operation: .copy, fraction: 1)
-                resizedImg.unlockFocus()
-                if let imgData = resizedImg.tiffRepresentation {
-                    if let bitmap = NSBitmapImageRep(data: imgData) {
-                        let pngRepresentation = bitmap.representation(using: .png, properties: [:])
-                        do {
-                            let imageName = imageData.iconName.appending(".png")
-                            let destinationPath = imagePath.deletingLastPathComponent().appendingPathComponent(imageName)
-                            try pngRepresentation?.write(to: destinationPath, options: .atomic)
-                        } catch {
-                            print(error.localizedDescription)
-                        }
+                if let resizedImage = image.resized(toSize: imageData.size) {
+                    let imageName = imageData.iconName.appending(".png")
+                    let destinationPath = imagePath.deletingLastPathComponent().appendingPathComponent(imageName)
+                    do {
+                        try resizedImage.savePNG(toURL: destinationPath)
+                    } catch {
+                        print(error.localizedDescription)
                     }
                 }
+                
             }
         } else {
             print("Not valid image")
@@ -79,4 +101,5 @@ if arguments.count < 2 {
         print("File doesn't exist at given path")
     }
 }
+
 
